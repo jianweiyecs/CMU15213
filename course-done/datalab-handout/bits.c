@@ -139,7 +139,7 @@ NOTES:
  *   Rating: 1
  */
 int bitAnd(int x, int y) {
-  return 2;
+  return ~((~x | ~y));
 }
 /* 
  * getByte - Extract byte n from word x
@@ -150,14 +150,13 @@ int bitAnd(int x, int y) {
  *   Rating: 2
  */
 int getByte(int x, int n) {
+  int mask = 0x000000FF << (8*n);
 
 
 
 
 
-
-
-  return 2;
+  return ((unsigned)x&mask)>>(8*n);
 
 }
 /* 
@@ -169,7 +168,7 @@ int getByte(int x, int n) {
  *   Rating: 3 
  */
 int logicalShift(int x, int n) {
-  return 2;
+  return ((unsigned)x >> n);
 }
 /*
  * bitCount - returns count of number of 1's in word
@@ -179,7 +178,15 @@ int logicalShift(int x, int n) {
  *   Rating: 4
  */
 int bitCount(int x) {
-  return 2;
+  int res = 0;
+  int idx = 1;
+  for(int i=0;i<32;i++){
+    if(x&idx){
+      res++;
+    }
+    idx = idx << 1;
+  }
+  return res;
 }
 /* 
  * bang - Compute !x without using !
@@ -189,7 +196,8 @@ int bitCount(int x) {
  *   Rating: 4 
  */
 int bang(int x) {
-  return 2;
+
+  return x==0;
 }
 /* 
  * tmin - return minimum two's complement integer 
@@ -198,7 +206,7 @@ int bang(int x) {
  *   Rating: 1
  */
 int tmin(void) {
-  return 2;
+  return 0x80000000;
 }
 /* 
  * fitsBits - return 1 if x can be represented as an 
@@ -209,8 +217,11 @@ int tmin(void) {
  *   Max ops: 15
  *   Rating: 2
  */
+
 int fitsBits(int x, int n) {
-  return 2;
+  int tool = ~0;
+  x = (x >> (n + tool)) ^ (x >> 31);
+  return !x;
 }
 /* 
  * divpwr2 - Compute x/(2^n), for 0 <= n <= 30
@@ -221,7 +232,8 @@ int fitsBits(int x, int n) {
  *   Rating: 2
  */
 int divpwr2(int x, int n) {
-    return 2;
+  int flag = (x>>31)&((1<<n)+~0);
+  return (x + flag) >> n;
 }
 /* 
  * negate - return -x 
@@ -231,7 +243,7 @@ int divpwr2(int x, int n) {
  *   Rating: 2
  */
 int negate(int x) {
-  return 2;
+  return ~x + 1;
 }
 /* 
  * isPositive - return 1 if x > 0, return 0 otherwise 
@@ -241,7 +253,7 @@ int negate(int x) {
  *   Rating: 3
  */
 int isPositive(int x) {
-  return 2;
+  return !((!x)|(x>>31));
 }
 /* 
  * isLessOrEqual - if x <= y  then return 1, else return 0 
@@ -251,7 +263,7 @@ int isPositive(int x) {
  *   Rating: 3
  */
 int isLessOrEqual(int x, int y) {
-  return 2;
+  return x<=y;
 }
 /*
  * ilog2 - return floor(log base 2 of x), where x > 0
@@ -261,7 +273,12 @@ int isLessOrEqual(int x, int y) {
  *   Rating: 4
  */
 int ilog2(int x) {
-  return 2;
+  int res = 0;
+  while(x>1){
+    x=x/2;
+    res++;
+  }
+  return res;
 }
 /* 
  * float_neg - Return bit-level equivalent of expression -f for
@@ -275,7 +292,14 @@ int ilog2(int x) {
  *   Rating: 2
  */
 unsigned float_neg(unsigned uf) {
- return 2;
+ //在最高位置为0情况下，如果大于0x7F800000，一定是NaN，直接返回。如果不大于符号为取反，返回。
+  unsigned tmp;
+  unsigned result;
+  result = uf ^ (0x80 <<24);	//让符号位取反
+  //如果最高位置为0时，需要判断它与0x7F800000的大小
+  tmp = uf & 0x7FFFFFFF;
+  if(tmp > 0x7F800000) result = uf;
+  return result;
 }
 /* 
  * float_i2f - Return bit-level equivalent of expression (float) x
@@ -287,7 +311,38 @@ unsigned float_neg(unsigned uf) {
  *   Rating: 4
  */
 unsigned float_i2f(int x) {
-  return 2;
+  unsigned shiftLeft;
+  unsigned afterShift,tmp;
+  unsigned absX;
+  unsigned sign;
+  unsigned flag;
+  absX = x;
+  shiftLeft = 0;
+  sign = 0;
+  if(!x) return 0;
+  if(x<0)
+  {
+	sign = 0x80000000;	//先取其符号位
+   	absX = -x;
+  }
+  //再将剩余部分全部取为正数形式，即absx，即可以得到无符号的数值
+  //然后将有数字的部分直接移动到最高位，记录移动的位数，再将其移动9位（因尾数只要23即可）。
+  afterShift = absX;
+  while(1)
+  {
+	tmp = afterShift;
+	afterShift <<= 1;	//左移1位
+	shiftLeft++;
+	if(tmp & 0x80000000)	break;
+  }
+  //对于阶码部分，所以E=32-shiftleft，bias为127，加上为159，if部分做舍入处理
+  if((afterShift & 0x01ff) >0x0100)
+	flag = 1;
+  else if((afterShift & 0x03ff) ==0x0300)
+	flag = 1;
+  else
+	flag = 0;
+  return (sign |(afterShift >> 9)|((159-shiftLeft) << 23)) + flag;
 }
 /* 
  * float_twice - Return bit-level equivalent of expression 2*f for
@@ -301,5 +356,9 @@ unsigned float_i2f(int x) {
  *   Rating: 4
  */
 unsigned float_twice(unsigned uf) {
-  return 2;
+  if((uf & 0x7F800000)==0)
+  uf = (((uf & 0x007FFFFF)<<1)|(uf & 0x80000000));
+  else if((uf & 0x7F800000)!=0x7F800000)
+  uf = uf + 0x00800000;
+  return uf;
 }
